@@ -91,4 +91,5 @@ aligner.process_song(
     embed_lyrics=True,    # Embed lyrics into the audio file
 )
 
-print(f"✅ Successfully processed
+print(f"✅ Successfully processed {audio_file}")
+````
