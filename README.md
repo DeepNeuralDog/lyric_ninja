@@ -14,7 +14,7 @@ This project leverages powerful models for high-quality results:
 You can install the latest version directly from the GitHub repository using `pip`. This is the easiest way to get started. It is recommended to use Python 3.10.
 
 ```sh
-pip install git+https://github.com/DeeepNeuralDog/lyric_ninja.git
+pip install git+https://github.com/DeepNeuralDog/lyric_ninja.git
 ```
 
 ### For Development
