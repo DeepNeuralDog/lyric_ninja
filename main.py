@@ -4,7 +4,7 @@ import traceback
 from time import time
 from typing import Dict, Any, List
 
-from lyric_ninja.lyric_aligner.aligner import TorchaudioAligner
+from lyric_ninja.lyric_aligner.aligner import LyricAligner
 
 def main() -> None:
     mdx_params: Dict[str, Any] = {
@@ -38,7 +38,7 @@ def main() -> None:
     ]
 
     try:
-        aligner = TorchaudioAligner(
+        aligner = LyricAligner(
             sep_model_filename='UVR-MDX-NET-Inst_full_292.onnx',
             mdx_params=mdx_params,
             generation_path=generation_path,

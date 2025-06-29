@@ -5,7 +5,7 @@ import traceback
 from time import time
 from typing import Dict, Any, Optional
 
-from .lyric_aligner.aligner import TorchaudioAligner
+from .lyric_aligner.aligner import LyricAligner
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Align lyrics with audio files using machine learning")
@@ -51,7 +51,7 @@ def main() -> None:
     }
     
     try:
-        aligner = TorchaudioAligner(
+        aligner = LyricAligner(
             sep_model_filename='UVR-MDX-NET-Inst_full_292.onnx',
             mdx_params=mdx_params,
             generation_path=args.output_dir,

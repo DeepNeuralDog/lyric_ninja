@@ -64,10 +64,10 @@ For more control, you can use Lyric Ninja directly in your Python code.
 This script processes a single song and generates a synchronized `.lrc` file.
 
 ````python
-from lyric_ninja import TorchaudioAligner
+from lyric_ninja import LyricAligner
 
 # 1. Initialize the aligner
-aligner = TorchaudioAligner()
+aligner = LyricAligner()
 
 # 2. Define file paths and metadata
 audio_file = "data/songs/The Scientist.mp3"

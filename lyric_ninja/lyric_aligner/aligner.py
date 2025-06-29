@@ -104,7 +104,7 @@ def merge_words(segments: List[Segment], separator: str = "|") -> List[Segment]:
             i2 += 1
     return words
 
-class TorchaudioAligner:
+class LyricAligner:
     def __init__(
         self,
         sep_model_filename: Optional[str] = None,
