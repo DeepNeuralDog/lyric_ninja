@@ -11,6 +11,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Align lyrics with audio files using machine learning")
     parser.add_argument("audio_file", type=str, help="Path to the audio file")
     parser.add_argument("lyric_file", type=str, help="Path to the lyrics text file")
+    parser.add_argument("--chunk_duration", type=int, default=120, help="chunk duration(seconds) for wav2vec2")
+    parser.add_argument("--segment_size", type=int, default=1024, help="Segment size for processing")
     parser.add_argument("--output-dir", type=str, default="output", help="Output directory for generated files (default: output)")
     parser.add_argument("--artist", type=str, default="Unknown Artist", help="Artist name for metadata")
     parser.add_argument("--title", type=str, help="Song title for metadata (default: derived from filename)")
@@ -44,7 +46,7 @@ def main() -> None:
     
     mdx_params: Dict[str, Any] = {
         "hop_length": 1024,
-        "segment_size": 512,
+        "segment_size": args.segment_size,
         "overlap": 0.25,
         "batch_size": 1,
         "enable_denoise": True
@@ -55,6 +57,7 @@ def main() -> None:
             sep_model_filename='UVR-MDX-NET-Inst_full_292.onnx',
             mdx_params=mdx_params,
             generation_path=args.output_dir,
+            chunk_duration=args.chunk_duration,
         )
     except Exception as e:
         print(f"Error initializing aligner: {e}", file=sys.stderr)

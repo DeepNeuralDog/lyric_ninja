@@ -110,12 +110,13 @@ class LyricAligner:
         sep_model_filename: Optional[str] = None,
         mdx_params: Optional[Dict[str, Any]] = None,
         generation_path: str = "generation",
+        chunk_duration: int = 120
     ) -> None:
         self.device: str
         self.use_coreml: bool = False
         self.coreml_model_path: str = "models/wav2_vec2.mlpackage"
         self.model: Any
-
+        self.chunk_duration: int = chunk_duration
         if torch.backends.mps.is_available():
             self.device = "mps"
             if not os.path.exists(self.coreml_model_path):
@@ -162,10 +163,10 @@ class LyricAligner:
         print("Vocal separation failed or output file not found. Using original audio.")
         return audio_file
 
-    def wav2vec2_inference(self, waveform_np: np.ndarray, chunk_duration: int = 100) -> torch.Tensor:
+    def wav2vec2_inference(self, waveform_np: np.ndarray) -> torch.Tensor:
         if self.use_coreml:
             output_key = self.model._spec.description.output[0].name
-            chunk_size = chunk_duration * self.bundle.sample_rate
+            chunk_size = self.chunk_duration * self.bundle.sample_rate
             total_samples = waveform_np.shape[1]
             all_emissions = []
             for i in range(0, total_samples, chunk_size):
@@ -186,7 +187,7 @@ class LyricAligner:
             waveform_np = np.expand_dims(waveform, axis=0)
             
             start_inference = time()
-            emissions = self.wav2vec2_inference(waveform_np=waveform_np, chunk_duration=100)
+            emissions = self.wav2vec2_inference(waveform_np=waveform_np)
             end_inference = time()
             print(f"Wav2Vec2 Inference time: {end_inference - start_inference:.2f} seconds")
 

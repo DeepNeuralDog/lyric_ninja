@@ -42,7 +42,7 @@ def main() -> None:
     try:
         aligner = LyricAligner(
             sep_model_filename='UVR-MDX-NET-Inst_full_292.onnx',
-            # mdx_params=mdx_params,
+            mdx_params=mdx_params,
             generation_path=generation_path,
         )
     except Exception as e:
