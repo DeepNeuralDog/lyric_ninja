@@ -21,7 +21,10 @@ from typing import List, Dict, Optional, Any, Tuple
 import logging
 from audio_separator.separator.architectures.mdx_separator import MDXSeparator
 from audio_separator.separator.separator import Separator as SeparatorWrapper
+from audio_separator.separator.uvr_lib_v5.stft import STFT
 from tqdm import tqdm
+import torch.nn.functional as F
+
 
 @dataclass
 class Point:
@@ -171,8 +174,10 @@ class LyricAligner:
         self.mdx_model: Optional[MDXSeparator] = None
         try:
             print("Initializing source separation model...")
+            temp_separator = SeparatorWrapper(log_level=logging.WARNING)
             _, _, _, model_path, _ = temp_separator.download_model_files(sep_model_filename)
             model_data = temp_separator.load_model_data_using_hash(model_path)
+            
             common_config = {
                 "logger": temp_separator.logger,
                 "log_level": logging.WARNING,
@@ -193,15 +198,22 @@ class LyricAligner:
                 "sample_rate": self.bundle.sample_rate,
                 "use_soundfile": False,
             }
+            
             arch_config = mdx_params or {
                 "hop_length": 1024,
-                "segment_size": 1024,
                 "overlap": 0.25,
+                "segment_size": 256,  # FIX 1: Use a sensible default for segment_size
                 "batch_size": 1,
                 "enable_denoise": True,
             }
 
             self.mdx_model = MDXSeparator(common_config=common_config, arch_config=arch_config)
+            
+            # FIX 1: Explicitly set segment_size to the model's native dim_t if not provided
+            if self.mdx_model.segment_size is None:
+                self.mdx_model.segment_size = self.mdx_model.dim_t
+            
+            self.mdx_model.initialize_model_settings()
             print("Source separation model loaded successfully.")
 
         except Exception as e:
@@ -209,7 +221,245 @@ class LyricAligner:
             traceback.print_exc()
 
 
+    def run_mdx_on_gpu(self, mix_gpu: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the MDX model on a tensor that is already on the GPU.
+        This is a simplified, GPU-only version of the demix logic.
+        """
+        # The MDX model's internal demixing logic is complex and still uses numpy.
+        # For a true GPU pipeline, we must replicate its core logic in PyTorch.
+        # This is a simplified version focusing on the model call.
+        # NOTE: This assumes the input `mix_gpu` is a single, manageable chunk.
+        
+        # 1. Convert to Spectrogram (on GPU)
+        spek = self.mdx_model.stft(mix_gpu)
+        # print(f"Spek shape : ---->{spek.shape}")
+        spek = spek.unsqueeze(0)  # Ensure batch dimension is present
+        # print(f"Spek shape : ---->{spek.shape}")
+        spek[:, :, :3, :] *= 0  # Zero out low-frequency bins
 
+        # 2. Run the model (on GPU)
+        if self.mdx_model.enable_denoise:
+            spec_pred_neg = self.mdx_model.model_run(-spek)
+            spec_pred_pos = self.mdx_model.model_run(spek)
+            spec_pred = (spec_pred_neg * -0.5) + (spec_pred_pos * 0.5)
+        else:
+            spec_pred = self.mdx_model.model_run(spek)
+
+        # 3. Inverse STFT to get audio back (on GPU)
+        separated_audio_gpu = self.mdx_model.stft.inverse(spec_pred)
+        
+        return separated_audio_gpu
+    def pipelined_inference_on_gpu(self, audio_file: str) -> Optional[Tuple[np.ndarray, int]]:
+        """
+        Performs a high-performance pipeline optimized for CPU pre-processing and hardware-accelerated model inference.
+        1. Loads and resamples audio efficiently on the CPU with Librosa.
+        2. Creates overlapping chunks as a NumPy array.
+        3. For each batch, performs a minimal CPU->GPU->CPU roundtrip for STFT operations.
+        4. Feeds the separated audio into the final model (CoreML or Wav2Vec2).
+        """
+        if not self.mdx_model:
+            print("MDX model not available for pipelined inference.")
+            return None
+        
+        try:
+            # 1. Load and resample audio entirely on CPU with Librosa
+            waveform_np, sr = librosa.load(audio_file, mono=False, sr=self.bundle.sample_rate)
+            
+            # Ensure waveform is stereo
+            if waveform_np.ndim == 1:
+                waveform_np = np.stack([waveform_np, waveform_np])
+            
+            original_samples = waveform_np.shape[1]
+
+            # 2. Set up parameters and pad on CPU with NumPy
+            chunk_size = self.mdx_model.chunk_size
+            trim = self.mdx_model.trim
+            overlap = self.mdx_model.overlap
+            step = int((1 - overlap) * chunk_size)
+            
+            pad_amount = step - ((original_samples - 1) % step)
+            padded_waveform_np = np.pad(waveform_np, ((0, 0), (trim, trim + pad_amount)), 'constant')
+            
+            # 3. Create batches of overlapping chunks using NumPy
+            num_chunks = (padded_waveform_np.shape[1] - chunk_size) // step + 1
+            chunks = np.array([
+                padded_waveform_np[:, i*step : i*step+chunk_size]
+                for i in range(num_chunks)
+            ])
+            
+            # 4. Prepare for overlap-add on CPU
+            separated_output_np = np.zeros_like(padded_waveform_np, dtype=np.float32)
+            divider_np = np.zeros_like(padded_waveform_np, dtype=np.float32)
+            hanning_window_np = np.hanning(chunk_size)
+
+            print("Starting optimized batched inference...")
+            mini_batch_size = 4 
+            for i in tqdm(range(0, chunks.shape[0], mini_batch_size), desc="Processing Batches"):
+                batch_np = chunks[i:i+mini_batch_size]
+                
+                # --- Minimal CPU -> GPU -> CPU for STFT operations ---
+                batch_gpu = torch.from_numpy(batch_np).to(self.torch_device)
+                
+                # a. STFT (GPU)
+                spek = self.mdx_model.stft(batch_gpu)
+                
+                # b. Model Run (CPU/ANE via NumPy)
+                # input_spek_np = spek.cpu().numpy()
+                if self.mdx_model.enable_denoise:
+                    spec_pred_neg = self.mdx_model.model_run(-spek)
+                    spec_pred_pos = self.mdx_model.model_run(spek)
+                    spec_pred = (spec_pred_neg * -0.5) + (spec_pred_pos * 0.5)
+                else:
+                    spec_pred = self.mdx_model.model_run(spek)
+                
+                # c. Inverse STFT (GPU)
+                spec_pred_gpu = torch.from_numpy(spec_pred).to(self.torch_device)
+                separated_batch = self.mdx_model.stft.inverse(spec_pred_gpu)
+                
+                # --- Overlap-add back on the CPU ---
+                separated_batch_np = separated_batch.cpu().numpy()
+                for j, separated_chunk_np in enumerate(separated_batch_np):
+                    start_index = (i + j) * step
+                    separated_output_np[:, start_index : start_index + chunk_size] += separated_chunk_np * hanning_window_np
+                    divider_np[:, start_index : start_index + chunk_size] += hanning_window_np
+
+            # 5. Normalize the result and unpad on CPU
+            divider_np[divider_np == 0] = 1.0
+            separated_full_np = separated_output_np / divider_np
+            separated_mono_np = separated_full_np[0, trim : trim + original_samples] # Use one channel for mono
+
+            # 6. Wav2Vec2 Stage
+            # The input is already a NumPy array, perfect for CoreML
+            if self.use_coreml:
+                emissions, _ = self.model(np.expand_dims(separated_mono_np, axis=0))
+            else:
+                # For CUDA/CPU, we do one final conversion
+                mono_gpu = torch.from_numpy(separated_mono_np).unsqueeze(0).to(self.torch_device)
+                emissions, _ = self.model(mono_gpu)
+            
+            log_probs = torch.nn.functional.log_softmax(emissions, dim=-1)
+            return log_probs[0].cpu().numpy(), original_samples
+
+        except Exception as e:
+            print(f"❌ Error during pipelined inference: {e}")
+            traceback.print_exc()
+            return None
+            
+    # def pipelined_inference_on_gpu(self, audio_file: str) -> Optional[Tuple[np.ndarray, int]]:
+    #     if not self.mdx_model:
+    #         print("MDX model not available for pipelined inference.")
+    #         return None
+        
+    #     try:
+    #         waveform, sr = torchaudio.load(audio_file)
+            
+    #         # FIX 2: Perform resampling on CPU to avoid MPS error, then move to device
+    #         if sr != self.bundle.sample_rate:
+    #             resampler = torchaudio.transforms.Resample(sr, self.bundle.sample_rate)
+    #             waveform = resampler(waveform.cpu())
+            
+    #         waveform = waveform.to(self.torch_device)
+
+    #         if waveform.shape[0] == 1:
+    #             waveform = waveform.repeat(2, 1)
+            
+    #         original_samples = waveform.shape[1]
+
+    #         # Replicate the padding and overlap-add logic from demix on the GPU
+    #         chunk_size = self.mdx_model.chunk_size
+    #         trim = self.mdx_model.trim
+    #         gen_size = chunk_size - 2 * trim
+    #         step = int((1 - self.mdx_model.overlap) * chunk_size)
+
+    #         pad_amount = gen_size + trim - ((original_samples - 1) % gen_size)
+    #         padded_waveform = F.pad(waveform, (trim, pad_amount), 'constant', 0)
+
+    #         total_len = padded_waveform.shape[1]
+    #         result = torch.zeros((1, 2, total_len), device=self.torch_device)
+    #         divider = torch.zeros((1, 2, total_len), device=self.torch_device)
+    #         hanning_window = torch.hann_window(chunk_size, device=self.torch_device)
+
+    #         print("Starting GPU-centric pipelined inference...")
+    #         for i in tqdm(range(0, total_len - chunk_size + 1, step), desc="Processing GPU Chunks"):
+    #             chunk = padded_waveform[:, i:i+chunk_size].unsqueeze(0) # Add batch dimension
+                
+    #             spek = self.mdx_model.stft(chunk)
+                
+    #             # The model_run expects a numpy array if using the fast ONNX path
+    #             is_onnx_path = not isinstance(self.mdx_model.model_run, torch.nn.Module)
+                
+    #             if self.mdx_model.enable_denoise:
+    #                 if is_onnx_path:
+    #                     spec_pred_neg = torch.from_numpy(self.mdx_model.model_run(-spek)).to(self.torch_device)
+    #                     spec_pred_pos = torch.from_numpy(self.mdx_model.model_run(spek)).to(self.torch_device)
+    #                 else:
+    #                     spec_pred_neg = self.mdx_model.model_run(-spek)
+    #                     spec_pred_pos = self.mdx_model.model_run(spek)
+    #                 spec_pred = (spec_pred_neg * -0.5) + (spec_pred_pos * 0.5)
+    #             else:
+    #                 if is_onnx_path:
+    #                     spec_pred = torch.from_numpy(self.mdx_model.model_run(spek)).to(self.torch_device)
+    #                 else:
+    #                     spec_pred = self.mdx_model.model_run(spek)
+
+    #             separated_chunk = self.mdx_model.stft.inverse(spec_pred)
+
+    #             result[:, :, i:i+chunk_size] += separated_chunk * hanning_window
+    #             divider[:, :, i:i+chunk_size] += hanning_window
+
+    #         divider[divider == 0] = 1.0 # Avoid division by zero
+    #         separated_gpu_full = result / divider
+    #         separated_gpu_full = separated_gpu_full[:, :, trim : trim + original_samples]
+
+    #         mono_gpu = torch.mean(separated_gpu_full, dim=1, keepdim=True)
+            
+    #         if self.use_coreml:
+    #             emissions, _ = self.model(mono_gpu.cpu())
+    #         else:
+    #             emissions, _ = self.model(mono_gpu)
+            
+    #         log_probs = torch.nn.functional.log_softmax(emissions, dim=-1)
+    #         return log_probs[0].cpu().numpy(), original_samples
+
+    #     except Exception as e:
+    #         print(f"❌ Error during GPU-centric pipelined inference: {e}")
+    #         traceback.print_exc()
+    #         return None
+
+    def get_timed_words(self, audio_file: str, transcript: str) -> List[Dict[str, Any]]:
+        try:
+            start = time()
+            
+            # Use the new, much faster GPU-centric pipeline
+            inference_result = self.pipelined_inference_on_gpu(audio_file)
+            
+            end = time()
+            print(f"Pipelined inference took {end - start:.2f} seconds")
+
+            if inference_result is None:
+                print("❌ Pipelined inference failed.")
+                return []
+
+            emission_np, original_samples = inference_result
+
+            tokens = [self.dictionary[c] for c in transcript]
+            
+            trellis = get_trellis_np(emission_np, tokens, self.blank_id)
+            path = backtrack_np(trellis, emission_np, tokens, self.blank_id)
+            char_segments = merge_repeats(path, transcript)
+            word_segments = merge_words(char_segments)
+
+            ratio = original_samples / emission_np.shape[0]
+            timed_words = [
+                {"text": word.label, "start": (word.start * ratio) / self.bundle.sample_rate, "end": (word.end * ratio) / self.bundle.sample_rate}
+                for word in word_segments
+            ]
+            return timed_words
+        except Exception as e:
+            print(f"❌ Error during alignment: {e}")
+            traceback.print_exc()
+            return []
 
     # def separate_vocals(self, audio_file: str, audio_name: str) -> str:
     #     start = time()
@@ -264,11 +514,6 @@ class LyricAligner:
             traceback.print_exc()
             return None
 
-        except Exception as e:
-            print(f"❌ Error during pipelined inference: {e}")
-            traceback.print_exc()
-            return None
-
     def wav2vec2_inference(self, waveform_np: np.ndarray) -> torch.Tensor:
         # This function is now simpler as it doesn't need to chunk anymore
         if self.use_coreml:
@@ -282,7 +527,7 @@ class LyricAligner:
                 emissions, _ = self.model(waveform)
             return emissions
 
-    def get_timed_words(self, audio_file: str, transcript: str) -> List[Dict[str, Any]]:
+    def get_timed_words_past(self, audio_file: str, transcript: str) -> List[Dict[str, Any]]:
         try:
             # 1. Load audio as stereo
             waveform, _ = librosa.load(audio_file, sr=self.bundle.sample_rate, mono=False)
