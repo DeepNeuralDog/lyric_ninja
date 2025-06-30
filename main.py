@@ -9,7 +9,7 @@ from lyric_ninja.lyric_aligner.aligner import LyricAligner
 def main() -> None:
     mdx_params: Dict[str, Any] = {
         "hop_length": 1024,
-        "segment_size": 512,
+        "segment_size": 1024,
         "overlap": 0.25,
         "batch_size": 1,
         "enable_denoise": True,
