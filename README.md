@@ -49,8 +49,11 @@ The CLI is the simplest way to process a single song.
 **Example:**
 ```sh
 lyric-ninja "data/songs/The Scientist.mp3" "data/raw_lyrics/Papercut.txt" \
-  --create-lrc \
-  --embed-lyrics \
+  --output_dir "output" \
+  --chunk_duration 120 \
+  --segment_size 1024 \
+  --create_lrc \
+  --embed_lyrics \
   --artist "Linkin Park" \
   --title "Papercut" \
   --album "forgot"

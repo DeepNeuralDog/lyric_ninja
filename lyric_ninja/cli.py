@@ -13,12 +13,12 @@ def main() -> None:
     parser.add_argument("lyric_file", type=str, help="Path to the lyrics text file")
     parser.add_argument("--chunk_duration", type=int, default=120, help="chunk duration(seconds) for wav2vec2")
     parser.add_argument("--segment_size", type=int, default=1024, help="Segment size for processing")
-    parser.add_argument("--output-dir", type=str, default="output", help="Output directory for generated files (default: output)")
+    parser.add_argument("--output_dir", type=str, default="output", help="Output directory for generated files (default: output)")
     parser.add_argument("--artist", type=str, default="Unknown Artist", help="Artist name for metadata")
     parser.add_argument("--title", type=str, help="Song title for metadata (default: derived from filename)")
     parser.add_argument("--album", type=str, default="Unknown Album", help="Album name for metadata")
-    parser.add_argument("--create-lrc", action="store_true", help="Create LRC format lyrics file")
-    parser.add_argument("--embed-lyrics", action="store_true", help="Embed lyrics into the audio file metadata")
+    parser.add_argument("--create_lrc", action="store_true", help="Create LRC format lyrics file")
+    parser.add_argument("--embed_lyrics", action="store_true", help="Embed lyrics into the audio file metadata")
     
     args = parser.parse_args()
     
