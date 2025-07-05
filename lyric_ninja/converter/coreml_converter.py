@@ -47,21 +47,25 @@ class HuBERTWrapper(BaseWrapper):
         emissions, _ = self.model(waveform)
         return emissions
 
-def convert_to_coreml(wrapped_model: BaseWrapper, output_path: str, max_duration_minutes: int = 15) -> None:
+def convert_to_coreml(wrapped_model: BaseWrapper, output_path: str, example_input:torch.Tensor, sample_rate:int, max_duration_sec: int = 15) -> None:
     if wrapped_model.sample_rate is None:
         raise ValueError("Wrapped model must have a sample_rate.")
         
-    example_input = torch.randn(1, wrapped_model.sample_rate * 10)
     traced_model = torch.jit.trace(wrapped_model, example_input)
     
-    variable_shape = ct.TensorType(
+    # variable_shape = ct.TensorType(
+    #     name="waveform",
+    #     shape=(1, ct.RangeDim(1, sample_rate * max_duration_minutes * 60))
+    # )
+    static_shape = ct.TensorType(
         name="waveform",
-        shape=(1, ct.RangeDim(1, wrapped_model.sample_rate * max_duration_minutes * 60))
+        shape=(1, sample_rate * max_duration_sec),
+
     )
     
     coreml_model = ct.convert(
         traced_model,
-        inputs=[variable_shape],
+        inputs=[static_shape],
         compute_units=ct.ComputeUnit.ALL
     )
     

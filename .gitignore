@@ -6,6 +6,7 @@ wheels/
 *.egg-info
 .venv
 *.mlpackage
+*.mlmodelc
 .DS_Store
 .vscode/
 generation/

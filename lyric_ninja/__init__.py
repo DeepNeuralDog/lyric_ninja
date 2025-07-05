@@ -11,7 +11,8 @@ __author__ = "Md. Hasibul Hasan"
 __email__ = "md.hasibul.hasan.codel@gmail.com"
 __license__ = "MIT"
 
-from .lyric_aligner.aligner import LyricAligner
+# from .lyric_aligner.aligner import LyricAligner
+from .lyric_aligner.aligner_new_new_new import LyricAligner
 from .converter.coreml_converter import Wav2Vec2Wrapper, convert_to_coreml, HuBERTWrapper
 
 __all__ = [

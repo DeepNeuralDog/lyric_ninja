@@ -9,7 +9,7 @@ from mutagen.id3 import ID3, USLT, Encoding
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 from rich import print
-from audio_separator.separator import Separator
+from audio_separator2.separator import Separator
 from time import time
 import numpy as np
 import coremltools as ct
@@ -19,9 +19,9 @@ from ..converter.coreml_converter import Wav2Vec2Wrapper, convert_to_coreml
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
 import logging
-from audio_separator.separator.architectures.mdx_separator import MDXSeparator
-from audio_separator.separator.separator import Separator as SeparatorWrapper
-from audio_separator.separator.uvr_lib_v5.stft import STFT
+from audio_separator2.separator.architectures.mdx_separator import MDXSeparator
+from audio_separator2.separator.separator import Separator as SeparatorWrapper
+from audio_separator2.separator.uvr_lib_v5.stft import STFT
 from tqdm import tqdm
 import torch.nn.functional as F
 
