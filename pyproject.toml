@@ -33,7 +33,6 @@ classifiers = [
 ]
 dependencies = [
     "coremltools>=8.3.0",
-    "demucs",
     "librosa>=0.11.0",
     "mlx>=0.26.1",
     "mutagen>=1.47.0",
@@ -44,6 +43,9 @@ dependencies = [
     "rich>=14.0.0",
     "torchaudio>=0.11.0,<2.2",
     "numpy<2",
+    "pip",
+    "ruff>=0.12.2",
+    "demucs",
 ]
 
 [project.optional-dependencies]
@@ -63,7 +65,7 @@ docs = [
 [project.urls]
 "Homepage" = "https://github.com/DeepNeuralDog/lyric_ninja"
 "Bug Reports" = "https://github.com/DeepNeuralDog/lyric_ninja/issues"
-"Source" = "https://github.com/yourusername/lyric_ninja"
+"Source" = "https://github.com/DeepNeuralDog/lyric_ninja"
 
 [project.scripts]
 lyric-ninja = "lyric_ninja.cli:main"
