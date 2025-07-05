@@ -3,7 +3,7 @@
 A Python library for automatic lyric-to-audio alignment using machine learning. It can process audio files, separate vocals, and align them with provided lyric text to generate synchronized lyric files (`.lrc`) and embed them directly into the audio's metadata.
 
 This project leverages powerful models for high-quality results:
-- **Vocal Separation**: Uses `UVR-MDX-NET-Inst_full_292.onnx` to isolate vocals from the audio track, improving alignment accuracy.
+- **Vocal Separation**: Uses `Demucs` to isolate vocals from the audio track, improving alignment accuracy.
 - **Speech Recognition**: Employs `WAV2VEC2_ASR_BASE_960H` for generating character-level timestamps from the vocal track.
 - **Apple Silicon Support**: Automatically converts and utilizes a Core ML version of the Wav2Vec2 model for significantly faster performance on MPS devices.
 
@@ -50,8 +50,6 @@ The CLI is the simplest way to process a single song.
 ```sh
 lyric-ninja "data/songs/The Scientist.mp3" "data/raw_lyrics/Papercut.txt" \
   --output_dir "output" \
-  --chunk_duration 120 \
-  --segment_size 1024 \
   --create_lrc \
   --embed_lyrics \
   --artist "Linkin Park" \
